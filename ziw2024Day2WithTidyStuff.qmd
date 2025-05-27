@@ -1,0 +1,171 @@
+---
+title: "ZIW 2024 Day 2"
+author: "John Paul Broussard, PhD, CFA, FRM, PRM"
+format: pdf
+bibliography: book.bib
+---
+
+## "Leftovers" from Day 1
+
+This section is from some of the "important" stuff not covered on Day 1...
+
+........
+
+One of the most powerful operators in the R language is the "c()" operator. Some call it the "concatenator," or "combiner." I just call it the "c" operator, which does nothing other than combine or concatenate multiple variables into one. For instance, if you have the following code chunk...
+
+```{r}
+#| label: cOperatorEx1  
+
+x <- 5 
+y <- 2 
+z <- c(x,y)  
+print(z) 
+```
+
+Notice what happened. The two "atomic" vectors" x and y are now combined into a new vector z, that has 1 row and 2 columns of values.
+
+You can also "combine" two character variables, as in the following code chunk.
+
+```{r}
+#| label: cChrEx1  
+
+x <- "The cat jumped" 
+y <- "over the hat." 
+z <- c(x,y)  
+
+print(z)
+```
+
+Notice, that technically, the new "z" variable is as previously, a vector with 2 elements.
+
+Finally, one can combine "objects," like vectors, as you can see in the following code chunk.
+
+```{r}
+#| label: vecCombEx1  
+
+x <- c(1,2) 
+y <- c(3,4) 
+z <- c(x,y)  
+print(z) 
+```
+
+By the way, this is not the same as performing a "string" operation, e.g. "substr()" etc....
+
+------------------------------------------------------------------------
+
+**Packages**
+
+For those of you who are familiar with computer programming, many tasks are usually pre-configured and ready to go as "packages" or "libraries." R uses the name "packages" to install and load code that helps one be more efficient and effective in their analyses. Since the data structure of interest in this class is of the "tidy" sort, we will make use of two "tidy" oriented packages, *tidyverse*, and *tidyquant*.
+
+Since you may yet to have load those packages, use the "install.packages()" function to have them installed on your system:
+
+`install.packages("tidyverse","tidyquant")`
+
+Now, to be able to use the functions within those packages, use the "library()" function to access the power built into each package. By the way, if packages are built on tools and functionality from other packages (termed "dependencies), the dependent packages are also loaded as needed.
+
+`library(tidyverse, tidyquant)`
+
+Anytime you need to access functions to make your life easier, load the requisite packages using the "library()" function.
+
+So, before we do any downloading of data, let's go through some of the basics of a "tidy" data set. Tidy datasets are nothing other that data structures that have rows that are "observations" and columns that are "variables."
+
+------------------------------------------------------------------------
+
+# Getting Stock Market Data into R
+
+## Steps to Download Stock Market Data Directly into R
+
+There are two sections to today's lesson. The first session deals with downloading data from yahoo! finance. The second section deals with Chapter 2 of [@scheuch2023]. I have made some modifications to the chapter, but essentially, it is pretty much a direct application of the chapter information.
+
+**Section 1 - Yahoo Finance**
+
+This process requires the *tidyquant* package, which allows you to download relevant stock market data from a variety of sources. We will keep things simple in this video snippet. Just remember, there are many ways to do any one thing, so feel free to experiment with a mutltitude of other sources and tools.
+
+As a reminder, I am a huge fan of "tidy" type datasets, so I want to have as much data as I can in a tidy format. Since the package tidyquant includes quantmod, let us make sure you have the tidyquant package loaded. You can use a code chunk to do this, or you can include it inline as such `r if (!require(tidyquant)) install.packages('tidyquant')` Since we may wish to perform some "tidy" functions, let us also insure the "tidyverse" is loaded first inline `r if (!require(tidyverse)) install.packages('tidayverse')` and then by "code chunk":
+
+```{r}
+#| label: checkTidyQuant
+#| echo: false
+
+
+if (!require(tidyquant)) install.packages('tidyquant') 
+if (!require(tidyverse)) install.packages('tidyverse')
+library(tidyquant)
+library(tidyverse)
+```
+
+Notice, I placed the "echo=FALSE" option in the chunk so to minimize clutter in the output. The reason why you see "stuff" in the output comes from the inline invocations. We will deal with "cleaning" output in more detail, later.
+
+Next, download Apple data as an example
+
+```{r}
+#| label: downloadApple
+
+getSymbols('AAPL')
+```
+
+Did you notice that there is an object in the environment pane named 'AAPL?' Let's see what that data object looks like
+
+```{r}
+#| label: dataAAPL 
+
+print(str(AAPL))
+```
+
+As you can see, the AAPL object is of the type 'XTS,' which allows for advanced time series data to be analyzed. Let us keep things simple, though, in the fact that we wish to download data directly into a tidy form. To do that, use the "tq_get()" function.
+
+```{r}
+#|label: tidyApple 
+
+appleData.tdy <- tq_get('AAPL') 
+appleData.monthly <- tq_get('AAPL', periodicity = "monthly")
+
+head(appleData.tdy) 
+tail(appleData.tdy)
+
+head(appleData.monthly)
+tail(appleData.monthly)
+```
+
+To make things more relevant with respect to most recent observations, how about we put the data in reverse chronological order?
+
+```{r}
+#| label: reverseApple 
+
+appleData.rev <- appleData.tdy %>%
+  arrange(desc(date)) 
+
+head(appleData.rev) 
+tail(appleData.rev)
+```
+
+One of the items you will need to do will be to calculate returns with the “tq_mutate()” function, as an example of the following:
+
+```{r}
+# grab the apple data and calculate the returns 
+appleRet.tdy <- appleData.tdy %>% 
+  tq_mutate(select = adjusted, 
+            mutate_fun = periodReturn, 
+            period = "daily", 
+            type="log") %>% 
+  arrange(desc(date)) %>% 
+  select(symbol, date, adjusted, daily.returns) 
+
+head(appleRet.tdy)
+```
+
+Now, for some basic statistical characteristics…
+
+```{r}
+appleStats.summary <- appleRet.tdy %>% 
+  summarise(averageReturn = mean(daily.returns)*100, 
+            standardDeviation = sd(daily.returns)*100, 
+            maximumReturn = max(daily.returns)*200, 
+            minimumReturn = min(daily.returns)*100) 
+
+print(appleStats.summary)
+
+
+```
+
+Remember, this is only one way to get data into R. Be on the lookout for additional ways throughout the course.

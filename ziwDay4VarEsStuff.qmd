@@ -1,0 +1,190 @@
+---
+title: "ZIW Day 4 - VaR/ES Analyses"
+author: "JPB"
+format: pdf
+editor: visual
+---
+
+## VAR/Expected Shortfall (ES) Analyses
+
+First, get access to your multiple stock returns
+
+```{r}
+#|label: loadPackages
+#|echo: false
+
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(tidyquant))
+suppressPackageStartupMessages(library(corrplot))
+```
+
+```{r}
+#|label: portVarEs
+#|warning: false
+stockSymbols <- c("AAPL","F","GE","GS","NVDA",
+                  "TSLA","BAC","AAL","GOLD","AMZN")
+
+monthlyReturns <- tq_get(stockSymbols,
+                         from="2014-01-01",
+                         to="2024-06-01",
+                         periodicity = "monthly") %>%
+  group_by(symbol) %>%
+  tq_mutate(select = adjusted,
+            mutate_fun = periodReturn) %>%
+  select(symbol,date,adjusted,monthly.returns) %>%
+  filter(date>as.Date("2014-01-01"))
+
+eqWeightedPortRets.tdy <- monthlyReturns %>%
+  group_by(date) %>%
+  summarize(portAvgRet = mean(monthly.returns))
+
+histVar <- tq_performance(eqWeightedPortRets.tdy,
+                          Ra = portAvgRet,
+                          performance_fun = VaR,
+                          method = "historical")
+histVar
+
+gaussVar <- tq_performance(eqWeightedPortRets.tdy,
+                          Ra = portAvgRet,
+                          performance_fun = VaR,
+                          method = "gaussian")
+gaussVar
+
+histEs <- tq_performance(eqWeightedPortRets.tdy,
+                          Ra = portAvgRet,
+                          performance_fun = ES,
+                          method = "historical")
+histEs
+
+gaussEs <- tq_performance(eqWeightedPortRets.tdy,
+                          Ra = portAvgRet,
+                          performance_fun = ES,
+                          method = "gaussian")
+gaussEs
+
+
+```
+
+```{r}
+#| label: SingleSampleSims
+
+# calculate the basic portfolio stats
+
+# Portgolio Value
+portValue <- 100000000
+
+# Calculate the mean Portfolio returns
+PortfolioMean <- mean(eqWeightedPortRets.tdy$portAvgRet)
+
+# Calculate the standard deviation of Portfolio's returns
+PortfolioSd <- sd(eqWeightedPortRets.tdy$portAvgRet)
+
+
+# Conduct simulation-based analysis to estimate Value at Risk (VaR) 
+# and Expected Shortfall (ES) for a portfolio
+
+# Set the sample size
+numberOfSamples <- 1
+
+# Set the observations in the sample
+numberOfObs <- 5000
+
+# Create a data frame to hold VaRs and ESs from each sample
+simsVarsEss <- data.frame(simulationNumber = numeric(0), 
+                          var = numeric(0), 
+                          es = numeric(0))
+
+# Set the seed for generating random numbers to ensure reproducibility
+set.seed(1111)
+
+# Calculate random samples using a "for" loop
+# Generate Mean, VaR, ES
+for(simulationNumber in 1:numberOfSamples) {
+  PortfolioRvs <- rnorm(5000,mean = PortfolioMean, sd = PortfolioSd)
+  var <- PerformanceAnalytics::VaR(PortfolioRvs,p=0.95,method="gaussian")
+  es <- PerformanceAnalytics::ES(PortfolioRvs,p=0.95,method="gaussian")
+  simsVarsEss <- rbind(simsVarsEss,data.frame(simulationNumber, var, es))
+}
+
+
+# Calculate the Value at Risk (VaR) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "historical")*portValue)
+
+# Calculate the Expected Shortfall (ES) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "historical")*portValue)
+
+
+# Print average, minimum, and maximum VaR values obtained from the simulation
+print(paste0("The average VaR is: ", mean(simsVarsEss$var)))
+print(paste0("The min VaR is: ", min(simsVarsEss$var)))
+print(paste0("The max VaR is: ", max(simsVarsEss$var)))
+
+
+```
+
+```{r}
+#| label: MultipleSampleSims
+
+# calculate the basic portfolio st
+# Portgolio Value
+portValue <- 100000000
+
+# Calculate the mean Portfolio returns
+PortfolioMean <- mean(eqWeightedPortRets.tdy$portAvgRet)
+
+# Calculate the standard deviation of Portfolio's returns
+PortfolioSd <- sd(eqWeightedPortRets.tdy$portAvgRet)
+
+
+# Conduct simulation-based analysis to estimate Value at Risk (VaR) and Expected Shortfall (ES) for a portfolio
+
+# Set the sample size
+numberOfSamples <- 5000
+
+# Set the observations in the sample
+numberOfObs <- 5000
+
+# Create a data frame to hold VaRs and ESs from each sample
+simsVarsEss <- data.frame(simulationNumber = numeric(0), var = numeric(0), es = numeric(0))
+
+# Set the seed for generating random numbers to ensure reproducibility
+set.seed(1111)
+
+# Calculate random samples using a "for" loop
+# Generate Mean, VaR, ES
+for(simulationNumber in 1:numberOfSamples) {
+  PortfolioRvs <- rnorm(5000,mean = PortfolioMean, sd = PortfolioSd)
+  var <- PerformanceAnalytics::VaR(PortfolioRvs,p=0.95,method="gaussian")
+  es <- PerformanceAnalytics::ES(PortfolioRvs,p=0.95,method="gaussian")
+  simsVarsEss <- rbind(simsVarsEss,data.frame(simulationNumber, var, es))
+}
+
+
+# Calculate the Value at Risk (VaR) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "historical")*portValue)
+
+# Calculate the Expected Shortfall (ES) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "historical")*portValue)
+
+
+# Plot a histogram and density plot of the VaRs calculated from all simulations.
+
+hist(simsVarsEss$var)
+hist(simsVarsEss$es)
+plot(density(simsVarsEss$var))
+plot(density(simsVarsEss$es))
+
+
+# Print average, minimum, and maximum VaR values obtained from the simulation
+print(paste0("The average VaR is: ", mean(simsVarsEss$var)*portValue))
+print(paste0("The average ES is: ", mean(simsVarsEss$es)*portValue))
+print(paste0("The min VaR is: ", min(simsVarsEss$var)))
+print(paste0("The min ES is: ", min(simsVarsEss$es)))
+print(paste0("The max VaR is: ", max(simsVarsEss$var)))
+print(paste0("The max ES is: ", max(simsVarsEss$es)))
+
+```

@@ -1,0 +1,331 @@
+---
+title: "ZIW 2024 Day 2"
+author: "John Paul Broussard, PhD, CFA, FRM, PRM"
+format: pdf
+bibliography: book.bib
+---
+
+## 
+
+# Getting Stock Market Data into R
+
+## Steps to Download Stock Market Data Directly into R
+
+There are two sections to today's lesson. The first session deals with downloading data from yahoo! finance. The second section deals with Chapter 2 of [@scheuch2023]. I have made some modifications to the chapter, but essentially, it is pretty much a direct application of the chapter information.
+
+**Section 1 - Yahoo Finance**
+
+This process requires the *tidyquant* package, which allows you to download relevant stock market data from a variety of sources. We will keep things simple in this video snippet. Just remember, there are many ways to do any one thing, so feel free to experiment with a mutltitude of other sources and tools.
+
+As a reminder, I am a huge fan of "tidy" type datasets, so I want to have as much data as I can in a tidy format. Since the package tidyquant includes quantmod, let us make sure you have the tidyquant package loaded. You can use a code chunk to do this, or you can include it inline as such `r if (!require(tidyquant)) install.packages('tidyquant')` Since we may wish to perform some "tidy" functions, let us also insure the "tidyverse" is loaded first inline `r if (!require(tidyverse)) install.packages('tidayverse')` and then by "code chunk":
+
+```{r}
+#| label: checkTidyQuant
+
+
+if (!require(tidyquant)) install.packages('tidyquant') 
+if (!require(tidyverse)) install.packages('tidyverse')
+library(tidyquant)
+library(tidyverse)
+```
+
+Notice, I placed the "echo=FALSE" option in the chunk so to minimize clutter in the output. The reason why you see "stuff" in the output comes from the inline invocations. We will deal with "cleaning" output in more detail, later.
+
+Next, download Apple data as an example
+
+```{r}
+#| label: downloadApple
+
+getSymbols('AAPL')
+```
+
+Did you notice that there is an object in the environment pane named 'AAPL?' Let's see what that data object looks like
+
+```{r}
+#| label: dataAAPL 
+
+print(str(AAPL))
+```
+
+As you can see, the AAPL object is of the type 'XTS,' which allows for advanced time series data to be analyzed. Let us keep things simple, though, in the fact that we wish to download data directly into a tidy form. To do that, use the "tq_get()" function.
+
+```{r}
+#|label: tidyApple 
+
+appleData.tdy <- tq_get('AAPL') 
+
+head(appleData.tdy) 
+tail(appleData.tdy)
+```
+
+To make things more relevant with respect to most recent observations, how about we put the data in reverse chronological order?
+
+```{r}
+#| label: reverseApple 
+
+appleData.rev <- appleData.tdy %>%
+  arrange(desc(date)) 
+
+head(appleData.rev) 
+tail(appleData.rev)
+```
+
+Remember, this is only one way to get data into R. Be on the lookout for additional ways throughout the course.
+
+------------------------------------------------------------------------
+
+::: callout-note
+You are reading modifications to Chatper 2 of **Tidy Finance with R**.
+:::
+
+Everybody who has experience with data is also familiar with storing data in various formats like CSV, XLS, XLSX, or other delimited value storage. Reading and saving data can become very cumbersome in the case of using different data formats, both across different projects and across different programming languages. Moreover, storing data in delimited files often leads to problems with respect to column type consistency. For instance, date-type columns frequently lead to inconsistencies across different data formats and programming languages.
+
+This chapter shows how to import different open source data sets. Specifically, our data comes from the application programming interface (API) of Yahoo!Finance, a downloaded standard CSV file, an XLSX file stored in a public Google Drive repository, and other macroeconomic time series.\index{API}
+
+First, we load the global R packages that we use throughout this chapter. Later on, we load more packages in the sections where we need them.
+
+```{r}
+#| message: false
+library(tidyverse)
+library(scales)
+```
+
+Moreover, we initially define the date range for which we fetch and store the financial data, making future data updates tractable. In case you need another time frame, you can adjust the dates below. Our data starts with 1960 since most asset pricing studies use data from 1962 on.
+
+```{r}
+start_date <- ymd("1960-01-01")
+end_date <- ymd("2023-12-31")
+```
+
+## Fama-French Data
+
+We start by downloading some famous Fama-French factors [e.g., @Fama1993] and portfolio returns commonly used in empirical asset pricing. Fortunately, there is a neat package by [Nelson Areal](https://github.com/nareal/frenchdata/) that allows us to access the data easily: the `frenchdata` package provides functions to download and read data sets from [Prof. Kenneth French finance data library](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html) [@frenchdata].\index{Data!Fama-French factors} \index{Kenneth French homepage}
+
+```{r}
+#| label: loadFrenchdataPkg
+#| message: false
+library(frenchdata)
+```
+
+We can use the `download_french_data()` function of the package to download monthly Fama-French factors. The set *Fama/French 3 Factors* contains the return time series of the market `mkt_excess`, size `smb` and value `hml` alongside the risk-free rates `rf`. Note that we have to do some manual work to correctly parse all the columns and scale them appropriately, as the raw Fama-French data comes in a very unpractical data format. For precise descriptions of the variables, we suggest consulting Prof. Kenneth French's finance data library directly. If you are on the website, check the raw data files to appreciate the time you can save thanks to `frenchdata`.\index{Factor!Market}\index{Factor!Size}\index{Factor!Value}\index{Factor!Profitability}\index{Factor!Investment}\index{Risk-free rate}
+
+```{r}
+#| label: loadFFmonthly3Fac
+#| message: false
+factors_ff3_monthly_raw <- download_french_data("Fama/French 3 Factors")
+factors_ff3_monthly <- factors_ff3_monthly_raw$subsets$data[[1]] |>
+  mutate(
+    month = floor_date(ymd(str_c(date, "01")), "month"),
+    across(c(RF, `Mkt-RF`, SMB, HML), ~as.numeric(.) / 100),
+    .keep = "none"
+  ) |>
+  rename_with(str_to_lower) |>
+  rename(mkt_excess = `mkt-rf`) |> 
+  filter(month >= start_date & month <= end_date)
+```
+
+We also download the set *5 Factors (2x3)*, which additionally includes the return time series of the profitability `rmw` and investment `cma` factors. We demonstrate how the monthly factors are constructed in the chapter [Replicating Fama and French Factors](replicating-fama-and-french-factors.qmd).
+
+```{r}
+#| label: loadFFmonthly5Fac
+#| message: false
+factors_ff5_monthly_raw <- download_french_data("Fama/French 5 Factors (2x3)")
+
+factors_ff5_monthly <- factors_ff5_monthly_raw$subsets$data[[1]] |>
+  mutate(
+    month = floor_date(ymd(str_c(date, "01")), "month"),
+    across(c(RF, `Mkt-RF`, SMB, HML, RMW, CMA), ~as.numeric(.) / 100),
+    .keep = "none"
+  ) |>
+  rename_with(str_to_lower) |>
+  rename(mkt_excess = `mkt-rf`) |> 
+  filter(month >= start_date & month <= end_date)
+```
+
+You may also wish to use the 10 monthly industry portfolios, so let us fetch that data, too.\index{Data!Industry portfolios}
+
+```{r}
+#| label: loadFFindustry
+#| message: false
+industries_ff_monthly_raw <- download_french_data("10 Industry Portfolios")
+
+industries_ff_monthly <- industries_ff_monthly_raw$subsets$data[[1]] |>
+  mutate(month = floor_date(ymd(str_c(date, "01")), "month")) |>
+  mutate(across(where(is.numeric), ~ . / 100)) |>
+  select(month, everything(), -date) |>
+  filter(month >= start_date & month <= end_date) |> 
+  rename_with(str_to_lower)
+```
+
+It is worth taking a look at all available portfolio return time series from Kenneth French's homepage. You should check out the other sets by calling `get_french_data_list()`. For an alternative to download Fama-French data, check out the `FFdownload` package by [Sebastian Stöckl](https://github.com/sstoeckl/ffdownload).
+
+## q-Factors
+
+In recent years, the academic discourse experienced the rise of alternative factor models, e.g., in the form of the @Hou2015 *q*-factor model. We refer to the [extended background](http://global-q.org/background.html) information provided by the original authors for further information. The *q* factors can be downloaded directly from the authors' homepage from within `read_csv()`.\index{Data!q-factors}\index{Factor!q-factors}
+
+We also need to adjust this data. First, we discard information we will not use in the remainder of the book. Then, we rename the columns with the "R\_"-prescript using regular expressions and write all column names in lowercase. You should always try sticking to a consistent style for naming objects, which we try to illustrate here - the emphasis is on *try*. You can check out style guides available online, e.g., [Hadley Wickham's `tidyverse` style guide.](https://style.tidyverse.org/index.html)\index{Style guide}
+
+```{r}
+#| label: loadQ
+#| message: false
+factors_q_monthly_link <-
+  "https://global-q.org/uploads/1/2/2/6/122679606/q5_factors_monthly_2022.csv"
+
+factors_q_monthly <- read_csv(factors_q_monthly_link) |>
+  mutate(month = ymd(str_c(year, month, "01", sep = "-"))) |>
+  select(-R_F, -R_MKT, -year) |>
+  rename_with(~ str_remove(., "R_")) |>
+  rename_with(~ str_to_lower(.)) |>
+  mutate(across(-month, ~ . / 100)) |>
+  filter(month >= start_date & month <= end_date)
+```
+
+## Macroeconomic Predictors
+
+Our next data source is a set of macroeconomic variables often used as predictors for the equity premium. @Goyal2008 comprehensively reexamine the performance of variables suggested by the academic literature to be good predictors of the equity premium. The authors host the data updated to 2022 on [Amit Goyal's website.](https://sites.google.com/view/agoyal145) Since the data is an XLSX-file stored on a public Google drive location, we need to first download the data to access the data directly from our R session. Therefore, we load `readxl` to read the XLSX-file [@readxl].\index{Data!Macro predictors}
+
+```{r}
+#| label: loadReadXlPkg
+#| message: false
+library(readxl)
+```
+
+We use the basic `download.file()` function to download the XLSX-file.[^1]
+
+[^1]: Note that the `mode = "wb"` argument is used to ensure that the file is written in binary mode, which is important for non-text files like XLSX.
+
+```{r}
+#| label: loadQdata
+#| message: false
+macro_predictors_url <-
+  "https://docs.google.com/spreadsheets/d/1g4LOaRj4TvwJr9RIaA_nwrXXWTOy46bP/export?format=xlsx"
+
+download.file(
+  url = macro_predictors_url, 
+  destfile = "macro_predictors.xlsx", 
+  mode = "wb"
+)
+```
+
+Next, we read in the new data and transform the columns into the variables that we later use:
+
+1.  The dividend price ratio (`dp`), the difference between the log of dividends and the log of prices, where dividends are 12-month moving sums of dividends paid on the S&P 500 index, and prices are monthly averages of daily closing prices [@Campbell1988; @Campbell2006].
+2.  Dividend yield (`dy`), the difference between the log of dividends and the log of lagged prices [@Ball1978].
+3.  Earnings price ratio (`ep`), the difference between the log of earnings and the log of prices, where earnings are 12-month moving sums of earnings on the S&P 500 index [@Campbell1988].
+4.  Dividend payout ratio (`de`), the difference between the log of dividends and the log of earnings [@Lamont1998].
+5.  Stock variance (`svar`), the sum of squared daily returns on the S&P 500 index [@Guo2006].
+6.  Book-to-market ratio (`bm`), the ratio of book value to market value for the Dow Jones Industrial Average [@Kothari1997].
+7.  Net equity expansion (`ntis`), the ratio of 12-month moving sums of net issues by NYSE listed stocks divided by the total end-of-year market capitalization of NYSE stocks [@Campbell2008].
+8.  Treasury bills (`tbl`), the 3-Month Treasury Bill: Secondary Market Rate from the economic research database at the Federal Reserve Bank at St. Louis [@Campbell1987].
+9.  Long-term yield (`lty`), the long-term government bond yield from Ibbotson's Stocks, Bonds, Bills, and Inflation Yearbook [@Goyal2008].
+10. Long-term rate of returns (`ltr`), the long-term government bond returns from Ibbotson's Stocks, Bonds, Bills, and Inflation Yearbook [@Goyal2008].
+11. Term spread (`tms`), the difference between the long-term yield on government bonds and the Treasury bill [@Campbell1987].
+12. Default yield spread (`dfy`), the difference between BAA and AAA-rated corporate bond yields [@Fama1989].
+13. Inflation (`infl`), the Consumer Price Index (All Urban Consumers) from the Bureau of Labor Statistics [@Campbell2004].
+
+For variable definitions and the required data transformations, you can consult the material on [Amit Goyal's website](https://sites.google.com/view/agoyal145).
+
+```{r}
+#| label: macroPredictors
+macro_predictors <- read_xlsx(
+  "macro_predictors.xlsx",
+  sheet = "Monthly"
+) |>
+  mutate(month = ym(yyyymm)) |>
+  mutate(across(where(is.character), as.numeric)) |>
+  mutate(
+    IndexDiv = Index + D12,
+    logret = log(IndexDiv) - log(lag(IndexDiv)),
+    Rfree = log(Rfree + 1),
+    rp_div = lead(logret - Rfree, 1), # Future excess market return
+    dp = log(D12) - log(Index), # Dividend Price ratio
+    dy = log(D12) - log(lag(Index)), # Dividend yield
+    ep = log(E12) - log(Index), # Earnings price ratio
+    de = log(D12) - log(E12), # Dividend payout ratio
+    tms = lty - tbl, # Term spread
+    dfy = BAA - AAA # Default yield spread
+  ) |>
+  select(month, rp_div, dp, dy, ep, de, svar,
+    bm = `b/m`, ntis, tbl, lty, ltr,
+    tms, dfy, infl
+  ) |>
+  filter(month >= start_date & month <= end_date) |>
+  drop_na()
+```
+
+Finally, after reading in the macro predictors to our memory, we remove the raw data file from our temporary storage.
+
+```{r}
+#| message: false
+#| output: false
+file.remove("macro_predictors.xlsx")
+```
+
+## Other Macroeconomic Data
+
+The Federal Reserve bank of St. Louis provides the Federal Reserve Economic Data (FRED), an extensive database for macroeconomic data. In total, there are 817,000 US and international time series from 108 different sources. As an illustration, we use the already familiar `tidyquant` package to fetch consumer price index (CPI) data that can be found under the [CPIAUCNS](https://fred.stlouisfed.org/series/CPIAUCNS) key.\index{Data!FRED}\index{Data!CPI}
+
+```{r}
+#| label: loadOtherMacro
+#| message: false
+library(tidyquant)
+
+cpi_monthly <- tq_get("CPIAUCNS",
+  get = "economic.data",
+  from = start_date,
+  to = end_date
+) |>
+  mutate(
+    month = floor_date(date, "month"),
+    cpi = price / price[month == max(month)],
+    .keep = "none"
+  )
+```
+
+To download other time series, we just have to look it up on the FRED website and extract the corresponding key from the address. For instance, the producer price index for gold ores can be found under the [PCU2122212122210](https://fred.stlouisfed.org/series/PCU2122212122210) key. The `tidyquant` package provides access to around 10,000 time series of the FRED database. If your desired time series is not included, we recommend working with the `fredr` package [@fredr]. Note that you need to get an API key to use its functionality. We refer to the package documentation for details.
+
+\newpage
+
+------------------------------------------------------------------------
+
+**Appendix**
+
+## Day 2 Summary of Packages and Functions
+
+## General Summary of Packages and Functions used in Day 2
+
+Three general packages used in Day 1's coding exercises are "tidyverse, tidyquant, and tbl2xts." Some of the functions on which this summary will focus are tidyquant's "tq_get," "tq_mutate," tbl2Xts's "tbl_xts" and PerformanceAnalytics' "VaR" functions.
+
+```{r}
+#| label: day2PacksFunchs
+#| echo: false
+#| include: false
+
+library(tidyquant)
+```
+
+
+This is the help information for the tq_get function:
+
+```{r}
+#| label: helpTqGet
+
+#help(tq_get)
+```
+
+
+------------------------------------------------------------------------
+
+
+
+\newpage
+
+This the help information for the tq_mutate function:
+
+```{r}
+#| label: helpTqMutate
+
+# help(tq_mutate)
+```
+
+

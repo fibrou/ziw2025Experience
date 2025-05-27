@@ -1,0 +1,74 @@
+---
+title: "ZIW Day 3 - Correlation Analyses"
+author: "JPB"
+format: pdf
+editor: visual
+---
+
+## Correlation Analyses
+
+First, get access to your multiple stock returns
+
+```{r}
+#|label: loadPackages
+#|echo: false
+
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(tidyquant))
+suppressPackageStartupMessages(library(corrplot))
+```
+
+```{r}
+#|label: multipleStockReturns
+#|warning: false
+stockSymbols <- c("AAPL","F","GE","GS","NVDA",
+                  "TSLA","BAC","AAL","GOLD","AMZN")
+
+monthlyReturns <- tq_get(stockSymbols,
+                         from="2014-01-01",
+                         to="2024-06-01",
+                         periodicity = "monthly") %>%
+  group_by(symbol) %>%
+  tq_mutate(select = adjusted,
+            mutate_fun = periodReturn) %>%
+  select(symbol,date,adjusted,monthly.returns)
+
+# next we need to transform the monthly.returns to be in
+# columns so that we can feed the data in a correlation 
+# structure. to do that, use pivot_wider
+
+monthlyReturns.cols <- monthlyReturns %>%
+  select(-adjusted) %>%
+  pivot_wider(names_from = symbol,
+              values_from = monthly.returns) %>%
+  filter(date>as.Date("2014-01-01")) %>%
+  select(-date)
+
+# so, now, it's time for correlations...
+# first, a very basic correlation analysis
+
+correlationMatrix1 <- cor(monthlyReturns.cols)
+round(correlationMatrix1,2)
+
+# another "cooler" correlation output is corrplot
+corrplot(correlationMatrix1,
+         type="upper")
+
+# or how about the following
+corrplot(correlationMatrix1, 
+         method = 'ellipse', 
+         order = 'alphabet', 
+         type = 'upper')
+
+# there's a graphic test that the following chart.Correlation
+# function that causes warnings that I want to suppress
+suppressWarnings({
+
+  # now to perform a cool correlation analysis
+  chart.Correlation(monthlyReturns.cols, 
+                    histogram=TRUE, 
+                    pch=19)
+})
+  
+
+```

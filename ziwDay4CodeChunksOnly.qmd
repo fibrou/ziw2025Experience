@@ -1,0 +1,870 @@
+---
+title: "ZIW Day 4"
+author: "JPB"
+format: pdf
+editor: visual
+---
+
+## Multivariate VaR & ES Testing
+
+Create a Quarto file that generates a PDF as output for your report. As a guide for the data you are to acquire, feel free to use the following steps:
+
+1.  Gather index and daily stock price data covering the last 10 years for a portfolio of 5 stocks plus an index, of your choosing.
+2.  Create the usual summary statistics, e.g. means, variances, correlations, etc, on the returns associated with each data item.
+3.  Plot individual return patterns for each asset.
+4.  Plot price trends for all assets.
+5.  Calculate VaR and ES for the overall portfolio (equally weighted is fine).
+    1.  Calculate based on "historical," e.g. empirical data
+    2.  Calculate based on if the data assumed a normal distribution
+    3.  Calculate based on a single Monte Carlo simulation sample - using whatever data generation process you prefer.
+6.  Repeat 5, but with focus only on 5.3, and calculate VaR and ES for 5000 samples of 5000 observations each
+7.  Generate various statistics, e.g. mean, max, min, etc, for each and plot the distribution of VaR and ES.
+
+Present and explain your results. Remember: Be sure to provide enough explanation as to what you did, how you did it, and a summary of the VaR/ES performance metrics over the time horizon analyzed.
+
+## Install Required Packages
+
+This process requires the TidyQuant package, which allows you to download relevant stock market data from a variety of source, the Dplyr package which allows for certain analytical functions to be performed, and ggplot2 package which is needed to create the stock price and stock return graphs in this report.
+
+```{r}
+#| label: checkTidyQuant
+# check for required packages
+if (!require(tidyquant)) install.packages('tidyquant')
+if (!require(dplyr)) install.packages('dplyr')
+if (!require(rmarkdown)) install.packages('rmarkdown')
+if (!require(ROI)) install.packages("ROI")
+if (!require(ROI.plugin.glpk)) install.packages('ROI.plugin.glpk')
+if (!require(ROI.plugin.quadprog)) install.packages('ROI.plugin.quadprog')
+if (!require(ggplot2)) install.packages('ggplot2')
+library(tidyquant)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(lubridate)
+library(tidyr)
+library(matlib)
+library(quantmod)
+library(fPortfolio)
+library(ROI)
+
+```
+
+## Download Multiple Stock/ETF Market Data
+
+```{r}
+# Download data for identified stocks / funds
+
+multi_stock <- c("AAL", "AMZN", "AAPL", "NVDA", "GLD", "JPM")
+tq_get(c(multi_stock), get = "stock.prices", from = "2014-03-31", to = "2024-03-31")
+   
+```
+
+## Create Stock Charts - Analyze daily returns, create statistical summary data for each
+
+### American Airlines (AAL)
+
+```{r}
+# Tidy up retrieved data for American Airlines
+
+#| label: tidyAAL 
+
+AALData.tdy <- tq_get('AAL')
+head(AALData.tdy)
+tail(AALData.tdy)
+```
+
+```{r}
+# Plot data for American Airlines
+AALData.tdy %>%    
+
+  ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "American Airlines Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### Amazon (AMZN)
+
+```{r}
+# Tidy up retrieved data for Amazon
+#| label: tidyAMZN 
+
+AMZNData.tdy <- tq_get('AMZN') 
+head(AMZNData.tdy) 
+tail(AMZNData.tdy)
+```
+
+```{r}
+# Plot data for Amazon
+AMZNData.tdy %>%    
+  ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "Amazon Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### Nvidia (NVDA)
+
+```{r}
+# Tidy up retrieved data for Nvidia
+#| label: tidyNVDA 
+
+NVDAData.tdy <- tq_get('NVDA') 
+head(NVDAData.tdy) 
+tail(NVDAData.tdy)
+```
+
+```{r}
+# Plot data for Nvidia
+NVDAData.tdy %>%  
+ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "NVDA Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### Apple (AAPL)
+
+```{r}
+# Tidy up retrieved data for Apple
+#| label: tidyAAPL 
+
+AAPLData.tdy <- tq_get('AAPL') 
+head(AAPLData.tdy) 
+tail(AAPLData.tdy)
+```
+
+```{r}
+# Plot data for Apple
+AAPLData.tdy %>%  
+ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "Apple Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### Gold ETF (GLD)
+
+```{r}
+# Tidy up retrieved data for Gold ETF
+#| label: tidyGLD
+#| 
+  GLDData.tdy <- tq_get('GLD')
+   head(GLDData.tdy) 
+  tail(GLDData.tdy)
+```
+
+```{r}
+# Plot data for Gold ETF
+GLDData.tdy %>%    
+  
+  ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "GLD Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### JP Morgan (JPM)
+
+```{r}
+# Tidy up retrieved data for JP Morgan
+#| label: tidyJPM 
+
+  JPMData.tdy <- tq_get('JPM') 
+  head(JPMData.tdy)
+  tail(JPMData.tdy)
+```
+
+```{r}
+# Plot data for JP Morgan
+JPMData.tdy %>%     
+  
+ggplot(aes(x = date, y = adjusted)) +     geom_line() +     labs(title = "JP Morgan Chase Line Chart", y = "Closing Price", x = "") +      theme_tq()
+```
+
+### Combined Historical Trends
+
+```{r}
+# Download stock data
+#| label: downloadStocks 
+#| cache: TRUE 
+
+# Identify stocks desired
+symbols <- c("AAL", "AMZN", "NVDA", "AAPL", "GLD", "JPM")
+
+# Set time frame for desired data
+getSymbols(symbols, from = Sys.Date() - 3650, to = Sys.Date(), src = "yahoo")
+```
+
+```{r}
+
+# Create data frame of desired information for each stock
+prices_df <- data.frame(   Date = index(AAL),   AAL = AAL$AAL.Adjusted,   AMZN = AMZN$AMZN.Adjusted,   NVDA = NVDA$NVDA.Adjusted,  AAPL = AAPL$AAPL.Adjusted,  GLD = GLD$GLD.Adjusted,   JPM = JPM$JPM.Adjusted)
+```
+
+```{r}
+# Reshape data using reshape2 the prices_df data frame from a wide format to a long format, where each row represents a unique combination of date and stock, and the price of that stock on that date is placed in the "Price" column.
+library(reshape2)  
+prices_long <- melt(prices_df, id.vars = "Date", variable.name = "Stock", value.name = "Price")
+```
+
+```{r}
+# Plot the historical stock prices from the reshaped dataa frame
+ggplot(prices_long, aes(x = Date, y = Price, color = Stock)) +   geom_line() +   labs(title = "Historical Stock Prices",        x = "Date",        y = "Price",        color = "Stock") +   theme_minimal()
+```
+
+## Statistical Analysis
+
+### S&P 500 - Benchmark
+
+First, we need to download the S&P 500 data whose symbol is \^GSPC
+
+```{r}
+# Download S&P 500 data for desired time frame
+getSymbols("^GSPC", from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Tidy up the S&P information
+#| label: tidySP500  
+
+SP500Data.tdy <- tq_get('^GSPC')
+
+head(SP500Data.tdy) 
+tail(SP500Data.tdy)
+```
+
+```{r}
+# Using tidy S&P 500 data frame, select the "adjusted" column, and calculate the daily arithmetic returns of the S&P 500 index, storing the result in SP500Rets.tdy
+SP500Rets.tdy <- SP500Data.tdy %>%   
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic") 
+
+head(SP500Rets.tdy)
+```
+
+```{r}
+# Plot the S&P 500 daily returns
+SP500Rets.tdy %>%    
+  
+  ggplot(aes(x = date, y = daily.returns)) +   geom_line() +   labs(title = "SP500 Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of the S&P 500 index
+SP500Stats <- SP500Rets.tdy %>%    
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns)) 
+
+print(SP500Stats)
+```
+
+### American Airlines (AAL)
+
+```{r}
+# Using tidy AA data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+AALRets.tdy <- AALData.tdy %>%  
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic") 
+
+head(AALRets.tdy)
+```
+
+```{r}
+# Plot daily returns for AA
+AALRets.tdy %>%       
+  
+  ggplot(aes(x = date, y = daily.returns)) +     geom_line() +     labs(title = "AAL Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of AA
+AALStats <- AALRets.tdy %>%    
+  
+  summarise(Mean_Daily_Return = mean(daily.returns), STD_DEV_DailyReturn = sd(daily.returns))  
+
+print(AALStats)
+```
+
+#### Correlation to S&P 500 - AAL
+
+```{r}
+# Define ticker symbols
+stock_prices_AAL <- "AAL" 
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data for desired date range
+getSymbols(stock_prices_AAL, from = "2014-03-31", to = Sys.Date()) 
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+AAL_prices <- Ad(get('AAL')) 
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_AAL <- dailyReturn(AAL_prices) 
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation between returns
+correlation <- cor(returns_AAL, returns_SP)
+print(correlation)
+```
+
+### Amazon (AMZN)
+
+```{r}
+# Using tidy AMZN data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+AMZNRets.tdy <- AMZNData.tdy %>%  
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic")
+
+head(AMZNRets.tdy)
+```
+
+```{r}
+# Plot daily returns for AMZN
+
+AMZNRets.tdy %>%   
+  
+  ggplot(aes(x = date, y = daily.returns)) +   geom_line() +  labs(title = "Amazon Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of AMZN
+
+AMZNStats <- AMZNRets.tdy %>%   
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns))  
+
+print(AMZNStats)
+```
+
+#### Correlation to S&P 500 - AMZN
+
+```{r}
+# Define ticker symbols
+stock_prices_AMZN <- "AMZN" 
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data
+getSymbols(stock_prices_AMZN, from = "2014-03-31", to = Sys.Date()) 
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+AMZN_prices <- Ad(get('AMZN'))
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_AMZN <- dailyReturn(AMZN_prices) 
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation between returns
+correlation <- cor(returns_AMZN, returns_SP)
+print(correlation)
+```
+
+### Nvidia (NVDA)
+
+```{r}
+# Using tidy NVDA data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+NVDARets.tdy <- NVDAData.tdy %>%   
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic")  
+
+head(NVDARets.tdy)
+```
+
+```{r}
+# Plot daily returns for NVDA
+
+NVDARets.tdy %>%   
+  
+  ggplot(aes(x = date, y = daily.returns)) +     geom_line() +     labs(title = "NVDA Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of NVDA
+
+NVDAStats <- NVDARets.tdy %>% 
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns))  
+
+print(NVDAStats)
+```
+
+#### Correlation to S&P 500 - NVDA
+
+```{r}
+# Define ticker symbols
+stock_prices_NVDA <- "NVDA"
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data
+getSymbols(stock_prices_NVDA, from = "2014-03-31", to = Sys.Date())
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+NVDA_prices <- Ad(get('NVDA'))
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_NVDA <- dailyReturn(NVDA_prices) 
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation between returns
+correlation <- cor(returns_NVDA, returns_SP) 
+print(correlation)
+```
+
+### Apple (AAPL)
+
+```{r}
+# Using tidy AAPL data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+AAPLRets.tdy <- AAPLData.tdy %>%   
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic")  
+
+head(AAPLRets.tdy)
+```
+
+```{r}
+# Plot daily returns for AAPL
+
+AAPLRets.tdy %>%   
+  
+  ggplot(aes(x = date, y = daily.returns)) +     geom_line() +     labs(title = "Apple Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of AAPL
+
+AAPLStats <- AAPLRets.tdy %>% 
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns))  
+
+print(AAPLStats)
+```
+
+#### Correlation to S&P 500 - AAPL
+
+```{r}
+# Define ticker symbols
+stock_prices_AAPL <- "AAPL"
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data
+getSymbols(stock_prices_AAPL, from = "2014-03-31", to = Sys.Date())
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+AAPL_prices <- Ad(get('AAPL'))
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_AAPL <- dailyReturn(AAPL_prices) 
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation betwen returns
+correlation <- cor(returns_AAPL, returns_SP) 
+print(correlation)
+```
+
+### Gold ETF (GLD)
+
+```{r}
+# Using tidy GLD data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+GLDRets.tdy <- GLDData.tdy %>%   
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic")
+
+head(GLDRets.tdy)
+```
+
+```{r}
+# Plot daily returns for GLD
+
+GLDRets.tdy %>%        ggplot(aes(x = date, y = daily.returns)) +     geom_line() +     labs(title = "Gold ETF Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+
+
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of GLD
+
+GLDStats <- GLDRets.tdy %>%    
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns)) 
+
+print(GLDStats)
+```
+
+#### Correlation to S&P 500 - GLD
+
+```{r}
+# Define ticker symbols
+stock_prices_GLD <- "GLD" 
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data
+getSymbols(stock_prices_GLD, from = "2014-03-31", to = Sys.Date())
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+GLD_prices <- Ad(get('GLD'))  
+
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_GLD <- dailyReturn(GLD_prices)
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation between returns
+correlation <- cor(returns_GLD, returns_SP)
+print(correlation)
+```
+
+### JP Morgan (JPM)
+
+```{r}
+# Using tidy JPM data frame, select the "adjusted" column, and calculate the daily arithmetic returns; storing the result in new data frame
+
+JPMRets.tdy <- JPMData.tdy %>%    
+  
+  tq_mutate(select = adjusted, periodReturn, period = "daily", type = "arithmetic") 
+
+head(JPMRets.tdy)
+```
+
+```{r}
+# Plot daily returns for JPM
+
+JPMRets.tdy %>%   
+  
+  ggplot(aes(x = date, y = daily.returns)) +     geom_line() +     labs(title = "JP Morgan Chase Daily Return Chart", y = "Daily Return", x = "") +      theme_tq()
+
+
+```
+
+```{r}
+# Compute and print summary statistics including the mean and standard deviation of the daily returns of JPM
+
+JPMStats <- JPMRets.tdy %>%  
+  
+  summarise(Mean_Daily_Return = mean(daily.returns),STD_DEV_DailyReturn = sd(daily.returns)) 
+
+print(JPMStats)
+```
+
+#### Correlation to S&P 500 - JPM
+
+```{r}
+# Define ticker symbols
+stock_prices_JPM <- "JPM" 
+stock_prices_SP <- "^GSPC"
+```
+
+```{r}
+# Download stock price data
+getSymbols(stock_prices_JPM, from = "2014-03-31", to = Sys.Date())
+
+getSymbols(stock_prices_SP, from = "2014-03-31", to = Sys.Date())
+```
+
+```{r}
+# Extract adjusted close prices
+JPM_prices <- Ad(get('JPM'))
+SP500_prices <- Ad(get('GSPC'))
+```
+
+```{r}
+# Calculate daily returns
+returns_JPM <- dailyReturn(JPM_prices) 
+returns_SP <- dailyReturn(SP500_prices)
+```
+
+```{r}
+# Calculate correlation between returns
+correlation <- cor(returns_JPM, returns_SP)
+print(correlation)
+```
+
+## Create Portfolio to Analyze
+
+```{r}
+library(tidyquant)
+# 
+multi_stock <- c("AAL", "AMZN", "AAPL", "NVDA", "GLD", "JPM")
+
+Stock_Returns <- tq_get(c(multi_stock), get = "stock.prices", from = "2014-03-31", to = "2024-03-31")%>%
+  
+group_by(symbol) %>%
+  
+tq_mutate(select = adjusted,
+            mutate_fun = periodReturn,
+            period = "daily",
+            col_rename = "return") %>%
+
+  rename(adjPrice = adjusted) %>%
+
+# Select variables of interest  
+select(symbol, date, adjPrice, return)
+
+# Remove na lines
+na.omit(Stock_Returns)
+
+head(Stock_Returns)
+
+```
+
+## Analyze Stock Data
+
+```{r}
+#| label: Analyze Stock Data Adjusted Price
+
+# Plot the density of the adjusted prices
+# This plot shows the distribution of adjusted prices across all the stocks
+plot(density(Stock_Returns$adjPrice))
+
+# Plot density of returns
+plot(density(Stock_Returns$return))
+
+# calculate a uniform random choice of Portfolio obs
+set.seed(1111)
+ranUnimulti_stock <- Stock_Returns[round(runif(length(Stock_Returns$return),min=1,max=length(Stock_Returns$return)),0),]
+plot(density(ranUnimulti_stock$return))
+print(tq_performance(ranUnimulti_stock,Ra=return,performance_fun=VaR,method="historical"))
+
+
+# Calculate the Value at Risk (VaR) for the stock returns
+# VaR estimates the maximum potential loss with a certain level of confidence over a specified period. These calculations provide insights into the risk associated with the stock returns.
+print(tq_performance(Stock_Returns,Ra=return,performance_fun=VaR,method="historical"))
+print(tq_performance(Stock_Returns,Ra=return,performance_fun=VaR,method="gaussian"))
+
+print(PerformanceAnalytics::ES(Stock_Returns$return,method = "historical"))
+print(tq_performance(Stock_Returns,Ra=return,performance_fun=ES,method="historical"))
+
+# Plot prices
+Stock_Returns %>%
+  ggplot(aes(x=date,y=adjPrice)) +
+  labs(title = "Stock Price: Charting the Daily Prices",
+       x="Date", y="Adjusted Price") +
+  geom_line()
+
+# Plot the daily returns
+Stock_Returns %>%
+  ggplot(aes(x=date,y=return)) +
+  labs(title = "Stock Returns: Charting the Daily Returns",
+       x="Date", y="Daily Returns") +
+  geom_line()
+
+# Plot the density of daily returns
+Stock_Returns %>%
+    ggplot(aes(x = return, fill = symbol)) +
+    geom_density(alpha = 0.5) +
+    labs(title = "Portfolio: Distribution of the Daily Returns",
+         x = "Daily Returns", y = "Density") +
+    theme_tq() +
+    scale_fill_tq()
+
+# Calculate Stock_ReturnMeans
+rateMeans <- Stock_Returns %>%
+  summarize(meanRateReturns = mean(return))
+print(rateMeans)
+
+
+```
+
+### Historical Analysis
+
+For this analysis we assume our portfolio consists of equal weightings of all of the stock/ETF holdings and that we invested \$5,000,000 equally.
+
+```{r PortfolioStats}
+library(dplyr)
+
+# Provides insights into the risk associated with a portfolio by calculating and printing VaR and ES using historical data.
+
+# Generate Portfolio statistical data
+PortfolioStats <- Stock_Returns %>%
+  summarise(avgReturn = mean(return),
+            sigReturn = sd(return))
+
+# use the stat data to generate a VaR, for a given portfolio value
+print((PortfolioStats$avgReturn - (abs(qnorm(0.05)*PortfolioStats$sigReturn))))
+
+
+portValue <- 5000000
+
+VaR <- (PortfolioStats$avgReturn - (abs(qnorm(0.05)*PortfolioStats$sigReturn)))
+
+print(paste("Daily VaR for Portfolio is", round(VaR,digits=2), "USD"))
+      
+#Alternatively, a package named "formattable" has a function named "currency" that you may wish to give a try
+
+print(paste("Daily VaR for Portfolio is", formattable::currency(VaR)))
+
+print(PerformanceAnalytics::VaR(Stock_Returns$return,method = "historical")*portValue)
+print(tq_performance(Stock_Returns,Ra=return,performance_fun=VaR,method="historical"))
+
+print(PerformanceAnalytics::ES(Stock_Returns$return,method = "historical")*portValue)
+print(tq_performance(Stock_Returns,Ra=return,performance_fun=ES,method="historical"))
+
+```
+
+### Risk Analysis - Normal Distribution
+
+```{r}
+#| label: Portfoliovs
+
+# Conduct a risk analysis of a portfolio by simulating its returns, visualizing the distribution, and calculating risk metrics such as VaR and ES using both Gaussian and historical methods
+
+# Calculate the mean Portfolio returns
+PortfolioMean <- mean(Stock_Returns$return)
+
+# Calculate the standard deviation of Portfolio's returns
+PortfolioSd <- sd(Stock_Returns$return)
+
+# Draw observations from a normal distribution that has the same statistical characteristics as indicated by sp500's returns
+set.seed(1111)
+PortfolioRvs <- rnorm(5000,mean = PortfolioMean, sd = PortfolioSd)
+
+# Create a histogram to visualize the simulated distribution of portfolio returns.
+hist(PortfolioRvs)
+plot(density(PortfolioRvs))
+
+# Calculate the Value at Risk (VaR) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "historical")*portValue)
+
+# Calculate the Expected Shortfall (ES) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "historical")*portValue)
+
+```
+
+### Single Monte Carlo Simulation Analysis
+
+Using 1 sample of 5,000 observations
+
+```{r}
+#| label: SingleSampleSims
+
+# Conduct simulation-based analysis to estimate Value at Risk (VaR) and Expected Shortfall (ES) for a portfolio
+
+# Set the sample size
+numberOfSamples <- 1
+
+# Set the observations in the sample
+numberOfObs <- 5000
+
+# Create a data frame to hold VaRs and ESs from each sample
+simsVarsEss <- data.frame(simulationNumber = numeric(0), var = numeric(0), es = numeric(0))
+
+# Set the seed for generating random numbers to ensure reproducibility
+set.seed(1111)
+
+# Calculate random samples using a "for" loop
+# Generate Mean, VaR, ES
+for(simulationNumber in 1:numberOfSamples) {
+  PortfolioRvs <- rnorm(5000,mean = PortfolioMean, sd = PortfolioSd)
+  var <- PerformanceAnalytics::VaR(PortfolioRvs,p=0.95,method="gaussian")
+  es <- PerformanceAnalytics::ES(PortfolioRvs,p=0.95,method="gaussian")
+  simsVarsEss <- rbind(simsVarsEss,data.frame(simulationNumber, var, es))
+}
+
+# Plot a histogram and density plot of the VaRs calculated from all simulations.
+
+# Calculate the Value at Risk (VaR) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::VaR(PortfolioRvs,method = "historical")*portValue)
+
+# Calculate the Expected Shortfall (ES) of the portfolio using the Gaussian and historical methods and print result
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "gaussian"))
+print(PerformanceAnalytics::ES(PortfolioRvs,method = "historical")*portValue)
+
+
+# Print average, minimum, and maximum VaR values obtained from the simulation
+print(paste0("The average VaR is: ", mean(simsVarsEss$var)))
+print(paste0("The min VaR is: ", min(simsVarsEss$var)))
+print(paste0("The max VaR is: ", max(simsVarsEss$var)))
+```
+
+### Multivariate Monte Carlo Simulation
+
+Analysis using 5,000 samples of 5,000 observations
+
+```{r}
+#| label: multiSampleSims
+
+# Conduct simulation-based analysis to estimate Value at Risk (VaR) and Expected Shortfall (ES) for a portfolio
+
+# Set the sample size
+numberOfSamples <- 5000
+
+# Set the observations in the sample
+numberOfObs <- 5000
+
+# Create a data frame to hold VaRs and ESs from each sample
+simsVarsEss <- data.frame(simulationNumber = numeric(0), var = numeric(0), es = numeric(0))
+
+# Set the seed for generating random numbers to ensure reproducibility
+set.seed(1111)
+
+# Calculate random samples using a "for" loop
+# Generate Mean, VaR, ES
+for(simulationNumber in 1:numberOfSamples) {
+  PortfolioRvs <- rnorm(5000,mean = PortfolioMean, sd = PortfolioSd)
+  var <- PerformanceAnalytics::VaR(PortfolioRvs,p=0.95,method="gaussian")
+  es <- PerformanceAnalytics::ES(PortfolioRvs,p=0.95,method="gaussian")
+  simsVarsEss <- rbind(simsVarsEss,data.frame(simulationNumber, var, es))
+}
+
+# Plot a histogram and density plot of the VaRs calculated from all simulations.
+
+hist(simsVarsEss$var)
+hist(simsVarsEss$es)
+plot(density(simsVarsEss$var))
+plot(density(simsVarsEss$es))
+
+
+# Print average, minimum, and maximum VaR values obtained from the simulation
+print(paste0("The average VaR is: ", mean(simsVarsEss$var)*portValue))
+print(paste0("The average ES is: ", mean(simsVarsEss$es)*portValue))
+print(paste0("The min VaR is: ", min(simsVarsEss$var)))
+print(paste0("The min ES is: ", min(simsVarsEss$es)))
+print(paste0("The max VaR is: ", max(simsVarsEss$var)))
+print(paste0("The max ES is: ", max(simsVarsEss$es)))
+
+
+
+```
